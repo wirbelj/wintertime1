@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Our Advent Calendar</title>
+<style>
+  :root {
+    --bg: #1d2a3a; --ink: #fdf6e8; --card: #fffaf0; --card-ink: #2b2118; --accent: #d6a243;
+    --font: Georgia, "Times New Roman", serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); }
+  body { min-height: 100vh; display: flex; justify-content: center; }
+
+  /* The stage keeps your artwork's exact proportions on every screen */
+  #stage {
+    position: relative; width: min(100vw, calc(100vh * 1200 / 1800));
+    aspect-ratio: 1200 / 1800; background: linear-gradient(#26384f, #1a2433);
+  }
+  #art { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  .door {
+    position: absolute; border: 0; padding: 0; cursor: pointer; background: transparent;
+    border-radius: 6px; font: inherit; color: inherit; perspective: 600px;
+  }
+  /* Placeholder look, only visible while there is no artwork (see SHOW_PLACEHOLDER) */
+  .door.ph { background: #7a2e35; border: 2px solid var(--accent); }
+  .door .num { position: absolute; inset: 0; display: grid; place-items: center;
+    font-size: clamp(14px, 4.2vw, 40px); color: var(--ink); text-shadow: 0 1px 3px #0008; pointer-events: none; }
+  .door.hide-num .num { display: none; }
+
+  /* Ready to open today or earlier but not opened yet: gentle glow */
+  .door.ready { animation: glow 2.4s ease-in-out infinite; }
+  @keyframes glow { 50% { box-shadow: 0 0 18px 4px #ffd77a99; } }
+
+  /* Opened: dimmed or swapped for your "open" artwork */
+  .door.opened { box-shadow: inset 0 0 0 2px #ffd77a88; background-color: #ffd77a22; }
+  .door.opened .num { opacity: .5; }
+
+  .door.shake { animation: shake .4s; }
+  @keyframes shake { 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0;
+    background: var(--card); color: var(--card-ink); padding: 10px 16px; border-radius: 999px;
+    transition: .25s; pointer-events: none; max-width: 90vw; text-align: center; }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  #modal { position: fixed; inset: 0; display: none; place-items: center; background: #000a; padding: 16px; z-index: 5; }
+  #modal.open { display: grid; }
+  .card { background: var(--card); color: var(--card-ink); width: min(520px, 100%); max-height: 90vh; overflow: auto;
+    border-radius: 14px; padding: 24px; position: relative; animation: pop .3s ease-out; }
+  @keyframes pop { from { transform: scale(.85); opacity: 0; } }
+  .card h2 { margin: 0 0 4px; font-size: 1.5rem; }
+  .card .date { margin: 0 0 14px; color: #8a7358; font-size: .9rem; }
+  .card p { line-height: 1.55; white-space: pre-line; margin: 0 0 14px; }
+  .card img { max-width: 100%; border-radius: 8px; display: block; margin: 0 0 14px; }
+  .card a.btn, .card button.opt { display: inline-block; background: #7a2e35; color: #fff; border: 0; text-decoration: none;
+    padding: 10px 16px; border-radius: 8px; font: inherit; cursor: pointer; margin: 0 8px 8px 0; }
+  .card button.opt.right { background: #3d7a4b; } .card button.opt.wrong { background: #555; }
+  #close { position: absolute; top: 8px; right: 12px; background: none; border: 0; font-size: 1.8rem; cursor: pointer; color: #8a7358; }
+  .pieces { position: fixed; top: -20px; font-size: 24px; pointer-events: none; z-index: 9; animation: fall linear forwards; }
+  @keyframes fall { to { transform: translateY(110vh) rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .door.ready, .card { animation: none; } }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <img id="art" src="calendar.png" alt="Advent calendar artwork">
+</div>
+<div id="toast" role="status"></div>
+<div id="modal" role="dialog" aria-modal="true"><div class="card" id="card"></div></div>
+
+<script>
+/* ============================================================
+   SETTINGS
+   ============================================================ */
+const YEAR = 2026;                 // year of the December you're gifting
+const ART_W = 1200, ART_H = 1800;  // pixel size of your calendar.png (keep the 2:3 ratio below)
+const SHOW_NUMBERS = true;         // false if you drew the numbers into your artwork
+const OPEN_IMAGE = "";             // optional: "calendar-open.png" = same picture with every door open
+
+/* ============================================================
+   DOOR POSITIONS  (this is where your measurements go)
+   day = which December day. x, y = top-left corner of the window in pixels
+   on your artwork. w, h = its width and height in pixels.
+   The default is a 5x5 grid so the page works before your art exists.
+   ============================================================ */
+const SHUFFLED_DAYS = [14,3,21,9,25,6,18,1,12,23,16,5,24,10,19,2,22,8,13,4,17,11,20,7,15];
+const DOORS = SHUFFLED_DAYS.map((day, i) => ({
+  day, x: 60 + (i % 5) * 220, y: 200 + Math.floor(i / 5) * 300, w: 200, h: 260
+}));
+/* To use your own, replace the line above with entries like:
+   { day: 1, x: 112, y: 340, w: 180, h: 240 },  ...one for each day */
+
+/* ============================================================
+   WHAT'S BEHIND EACH DOOR  (edit freely, any day you leave out gets a default)
+   Optional fields: text, image (file in your repo), link + linkText,
+   quiz: { q, options: [..], answer: index of the right option, win: "message" }
+   ============================================================ */
+const CONTENT = {
+  1:  { title: "Day one!", text: "Welcome to our advent calendar. One little surprise a day, all made with love." },
+  2:  { title: "Our first photo", text: "I still love this one.", image: "photos/day2.jpg" },
+  3:  { title: "Our song", text: "Press play and think of me.", link: "https://www.youtube.com", linkText: "Play it" },
+  4:  { title: "Quick quiz", quiz: { q: "Where was our first date?", options: ["The park", "A cafe", "The movies"], answer: 1, win: "You remembered!" } },
+  25: { title: "Merry Christmas", text: "You are my favorite gift every year. I love you." }
+};
+const DEFAULT = { title: "A little surprise", text: "Surprise coming soon." };
+
+/* ============================================================
+   LOGIC (you shouldn't need to edit below this line)
+   ============================================================ */
+const params = new URLSearchParams(location.search);
+const TEST = params.get("test") === "1";
+const KEY = "advent-opened-" + YEAR;
+const stage = document.getElementById("stage");
+const art = document.getElementById("art");
+const toast = document.getElementById("toast");
+const modal = document.getElementById("modal");
+const card = document.getElementById("card");
+
+let opened = [];
+try { opened = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(opened)); } catch (e) {} };
+
+// Unlocks at 12:00am local time on that day, on his own device's clock
+const isUnlocked = day => TEST || new Date() >= new Date(YEAR, 11, day, 0, 0, 0);
+
+let noArt = false;
+art.addEventListener("error", () => { art.style.display = "none"; noArt = true; build(); });
+
+function say(msg) {
+  toast.textContent = msg; toast.classList.add("show");
+  clearTimeout(say.t); say.t = setTimeout(() => toast.classList.remove("show"), 2400);
+}
+
+function build() {
+  stage.querySelectorAll(".door").forEach(d => d.remove());
+  DOORS.forEach(d => {
+    const b = document.createElement("button");
+    b.className = "door" + (noArt ? " ph" : "") + (SHOW_NUMBERS ? "" : " hide-num");
+    b.style.left = (d.x / ART_W * 100) + "%";
+    b.style.top = (d.y / ART_H * 100) + "%";
+    b.style.width = (d.w / ART_W * 100) + "%";
+    b.style.height = (d.h / ART_H * 100) + "%";
+    b.dataset.day = d.day;
+    b.setAttribute("aria-label", "December " + d.day);
+    b.innerHTML = '<span class="num">' + d.day + "</span>";
+    if (OPEN_IMAGE) {
+      b.style.backgroundImage = "none";
+      b.dataset.open = "1";
+      b.style.setProperty("--ox", (d.x / (ART_W - d.w) * 100) + "%");
+      b.style.setProperty("--oy", (d.y / (ART_H - d.h) * 100) + "%");
+      b.style.setProperty("--os", (ART_W / d.w * 100) + "% " + (ART_H / d.h * 100) + "%");
+    }
+    b.addEventListener("click", () => tryOpen(d.day, b));
+    stage.appendChild(b);
+    refresh(b, d.day);
+  });
+}
+
+function refresh(b, day) {
+  const isOpen = opened.includes(day);
+  b.classList.toggle("opened", isOpen);
+  b.classList.toggle("ready", !isOpen && isUnlocked(day));
+  if (OPEN_IMAGE && isOpen) {
+    b.style.backgroundImage = "url(" + OPEN_IMAGE + ")";
+    b.style.backgroundSize = b.style.getPropertyValue("--os");
+    b.style.backgroundPosition = b.style.getPropertyValue("--ox") + " " + b.style.getPropertyValue("--oy");
+    b.style.backgroundColor = "transparent";
+  }
+}
+
+function tryOpen(day, b) {
+  if (!isUnlocked(day)) {
+    b.classList.remove("shake"); void b.offsetWidth; b.classList.add("shake");
+    say("This one opens on December " + day + " at midnight");
+    return;
+  }
+  if (!opened.includes(day)) { opened.push(day); save(); refresh(b, day); confetti(); }
+  show(day);
+}
+
+function show(day) {
+  const c = Object.assign({}, DEFAULT, CONTENT[day] || {});
+  card.innerHTML = '<button id="close" aria-label="Close">&times;</button>';
+  const add = (tag, text, cls) => { const e = document.createElement(tag); if (cls) e.className = cls; e.textContent = text; card.appendChild(e); return e; };
+  add("h2", c.title);
+  add("p", "December " + day + ", " + YEAR, "date");
+  if (c.image) { const i = document.createElement("img"); i.src = c.image; i.alt = ""; card.appendChild(i); }
+  if (c.text) add("p", c.text);
+  if (c.quiz) {
+    add("p", c.quiz.q);
+    c.quiz.options.forEach((o, n) => {
+      const bt = add("button", o, "opt");
+      bt.addEventListener("click", () => {
+        if (n === c.quiz.answer) { bt.classList.add("right"); add("p", c.quiz.win || "Correct!"); confetti(); }
+        else { bt.classList.add("wrong"); bt.textContent = o + " (try again)"; }
+      });
+    });
+  }
+  if (c.link) { const a = add("a", c.linkText || "Open", "btn"); a.href = c.link; a.target = "_blank"; a.rel = "noopener"; }
+  modal.classList.add("open");
+  document.getElementById("close").addEventListener("click", closeModal);
+  document.getElementById("close").focus();
+}
+function closeModal() { modal.classList.remove("open"); }
+modal.addEventListener("click", e => { if (e.target === modal) closeModal(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+
+function confetti() {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const bits = ["❄️", "✨", "🎄", "⭐", "❤️"];
+  for (let i = 0; i < 26; i++) {
+    const s = document.createElement("span");
+    s.className = "pieces"; s.textContent = bits[i % bits.length];
+    s.style.left = Math.random() * 100 + "vw";
+    s.style.animationDuration = 2 + Math.random() * 2 + "s";
+    s.style.animationDelay = Math.random() * .5 + "s";
+    document.body.appendChild(s);
+    setTimeout(() => s.remove(), 5000);
+  }
+}
+
+// Doors unlock at midnight even if the page is left open
+setInterval(() => document.querySelectorAll(".door").forEach(b => refresh(b, +b.dataset.day)), 60000);
+if (TEST) say("Test mode: every door is unlocked");
+build();
+</script>
+</body>
+</html>
