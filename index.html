@@ -89,9 +89,12 @@ const OPEN_IMAGE = "";             // optional: "calendar-open.png" = same pictu
    on your artwork. w, h = its width and height in pixels.
    The default is a 5x5 grid so the page works before your art exists.
    ============================================================ */
-const SHUFFLED_DAYS = [14,3,21,9,25,6,18,1,12,23,16,5,24,10,19,2,22,8,13,4,17,11,20,7,15];
-const DOORS = SHUFFLED_DAYS.map((day, i) => ({
-  day, x: 60 + (i % 5) * 220, y: 200 + Math.floor(i / 5) * 300, w: 200, h: 260
+const DOORS = Array.from({ length: 25 }, (_, i) => ({
+  day: i + 1,
+  x: 48 + (i % 5) * 230,
+  y: 350 + Math.floor(i / 5) * 230,
+  w: 180,
+  h: 180
 }));
 /* To use your own, replace the line above with entries like:
    { day: 1, x: 112, y: 340, w: 180, h: 240 },  ...one for each day */
