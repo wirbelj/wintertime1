@@ -18,6 +18,8 @@
     position: relative; width: min(100vw, calc(100vh * 1200 / 1800));
     aspect-ratio: 1200 / 1800; background: linear-gradient(#26384f, #1a2433);
   }
+  #snow { position: fixed; inset: 0; width: 100%; height: 100%;
+  pointer-events: none; z-index: 3; }
   #art { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
   .door {
@@ -226,6 +228,54 @@ function confetti() {
 // Doors unlock at midnight even if the page is left open
 setInterval(() => document.querySelectorAll(".door").forEach(b => refresh(b, +b.dataset.day)), 60000);
 if (TEST) say("Test mode: every door is unlocked");
+  /* Dreamy snow */
+(function () {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const c = document.createElement("canvas");
+  c.id = "snow"; document.body.appendChild(c);
+  const g = c.getContext("2d");
+  let w, h;
+
+  function size() {
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    w = innerWidth; h = innerHeight;
+    c.width = w * dpr; c.height = h * dpr;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  size(); addEventListener("resize", size);
+
+  function make(anywhere) {
+    const depth = Math.random();               // 0 = far away, 1 = close
+    return {
+      x: Math.random() * w,
+      y: anywhere ? Math.random() * h : -10,
+      r: 1 + depth * 3.5,                      // size
+      speed: 0.3 + depth * 1.1,                // fall speed
+      alpha: 0.25 + depth * 0.55,              // fainter when far
+      phase: Math.random() * 6.28,             // sway starting point
+      sway: 0.3 + Math.random() * 0.8,         // sway width
+      swayRate: 0.002 + Math.random() * 0.004  // sway speed
+    };
+  }
+
+  const flakes = Array.from({ length: innerWidth < 600 ? 70 : 130 }, () => make(true));
+
+  function tick(t) {
+    g.clearRect(0, 0, w, h);
+    g.fillStyle = "#fff"; g.shadowColor = "#fff";
+    for (const f of flakes) {
+      f.y += f.speed;
+      f.x += Math.sin(t * f.swayRate + f.phase) * f.sway;
+      if (f.x < -10) f.x = w + 10; else if (f.x > w + 10) f.x = -10;
+      if (f.y > h + 10) Object.assign(f, make(false));
+      g.globalAlpha = f.alpha;
+      g.shadowBlur = f.r * 3;                  // the soft glow
+      g.beginPath(); g.arc(f.x, f.y, f.r, 0, 7); g.fill();
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
 build();
 </script>
 </body>
